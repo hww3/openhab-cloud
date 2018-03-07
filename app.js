@@ -349,6 +349,9 @@ var io = require('socket.io').listen(server, {
     logger: logger
 });
 
+// we need to think about maybe supporting multiple inbound openhabs...
+var ioclient;
+
 // setup the routes for the app
 var rt = new routes(requestTracker, logger);
 rt.setSocketIO(io);
@@ -363,6 +366,15 @@ function sendNotificationToUser(user, message, icon, severity) {
         icon: icon,
         severity: severity
     });
+    var n = {
+    userId: user.username,
+    message: message,
+    icon: icon,
+    severity: severity
+    };
+    
+    ioclient.emit('notification', n);
+
     newNotification.save(function (error) {
         if (error) {
             logger.error('openHAB-cloud: Error saving notification: ' + error);
@@ -490,6 +502,26 @@ io.sockets.on('connection', function (socket) {
                     logger.error('openHAB-cloud: Error saving openHAB access log: ' + error);
                 }
             });
+
+          // connect to the "upstream" openhab for sending push notifications.
+          { // this isn't the right approach, either.
+             logger.info("openHAB-cloud: creating a connection to the upstream openHAB cloud.");
+             var u = socket.handshake.uuid;
+             var sec = socket.handshake.headers.secret;
+             var cv = socket.handshake.headers.clientversion;
+             var ov = socket.handshake.headers.openhabversion;
+             var eh = { 'uuid': u, 'secret': sec,
+               'remoteaccess': 'false', 'openhabversion': ov, 'clientversion': cv };
+
+             ioclient = require('socket.io-client')('https://myopenhab.org/', 
+               { extraHeaders: eh,
+                  transportOptions: {
+                    polling: {
+                       extraHeaders: eh
+                    }
+                  }
+              });
+
             // Make an event and notification only if openhab was offline
             // If it was marked online, means reconnect appeared because of my.oh fault
             // We don't want massive events and notifications when node is restarted
